@@ -130,3 +130,59 @@ func TestSingleFile(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestSubGroup(t *testing.T) {
+	p, err := startC4Group()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cw := NewWriter(p.Stdin)
+	err = cw.WriteHeader(&Header{
+		Entries: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	str := "Hello World!"
+	err = cw.WriteEntry(&Entry{
+		Filename: "foobar.txt",
+		Size:     len(str),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cw.WriteEntry(&Entry{
+		Filename: "SubGroup.ocg",
+		IsGroup:  true,
+		Size:     HeaderSize + 1*EntrySize + len(str),
+	})
+	if _, err = io.WriteString(cw, str); err != nil {
+		t.Fatal(err)
+	}
+	sub, err := cw.CreateSubGroup(&Header{
+		Entries: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = sub.WriteEntry(&Entry{
+		Filename:   "barbaz.txt",
+		Size:       len(str),
+		Executable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.WriteString(sub, str); err != nil {
+		t.Fatal(err)
+	}
+	if err = sub.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = cw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = p.VerifyStatus(); err != nil {
+		t.Error(err)
+	}
+}

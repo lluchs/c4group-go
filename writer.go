@@ -16,6 +16,11 @@ const (
 	C4GroupFileVer2 = 2
 )
 
+const (
+	HeaderSize = 204 // size of the header in byte
+	EntrySize  = 316 // size of each entry in byte
+)
+
 // Header on-disk format (C4GroupHeader)
 type header struct {
 	id         [24 + 4]byte
@@ -105,6 +110,16 @@ func NewWriter(w io.Writer) *Writer {
 	return &Writer{w: gz, gz: gz}
 }
 
+// CreateSubGroup starts a subfolder as part of the group's file data.
+func (cw *Writer) CreateSubGroup(hdr *Header) (*Writer, error) {
+	sub := &Writer{w: cw}
+	err := sub.WriteHeader(hdr)
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
 // WriteHeader writes a new group header to the group.
 func (cw *Writer) WriteHeader(hdr *Header) error {
 	if cw.haveHeader {
@@ -179,5 +194,8 @@ func (cw *Writer) Close() error {
 	if cw.written < cw.offset {
 		return ErrNotEnoughWritten
 	}
-	return cw.gz.Close()
+	if cw.gz != nil {
+		return cw.gz.Close()
+	}
+	return nil
 }
