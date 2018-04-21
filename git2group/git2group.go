@@ -30,7 +30,8 @@ func main() {
 }
 
 type Packer struct {
-	repo *git.Repository
+	repo     *git.Repository
+	treeSize map[git.Oid]int
 }
 
 func NewPacker(repoPath string) (*Packer, error) {
@@ -38,7 +39,7 @@ func NewPacker(repoPath string) (*Packer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Packer{repo: repo}, nil
+	return &Packer{repo: repo, treeSize: make(map[git.Oid]int)}, nil
 }
 
 func (p *Packer) PackTo(w io.Writer, rev, path string) error {
@@ -149,11 +150,16 @@ func (p *Packer) calcTreeSize(entry *git.TreeEntry) (size int, err error) {
 		entry := tree.EntryByIndex(i)
 		switch entry.Type {
 		case git.ObjectTree:
-			// TODO: memoize sub-sizes
-			s, err2 := p.calcTreeSize(entry)
-			if err2 != nil {
-				err = err2
-				return
+			var s int
+			// memoize sub-sizes
+			if s2, ok := p.treeSize[*entry.Id]; ok {
+				s = s2
+			} else {
+				s, err = p.calcTreeSize(entry)
+				if err != nil {
+					return
+				}
+				p.treeSize[*entry.Id] = s
 			}
 			size += c4group.EntrySize + s
 		case git.ObjectBlob:
