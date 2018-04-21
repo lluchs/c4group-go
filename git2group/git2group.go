@@ -23,6 +23,7 @@ import (
 
 type Packer struct {
 	repo     *git.Repository
+	odb      *git.Odb
 	treeSize map[git.Oid]int
 }
 
@@ -31,7 +32,16 @@ func NewPacker(repoPath string) (*Packer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Packer{repo: repo, treeSize: make(map[git.Oid]int)}, nil
+	odb, err := repo.Odb()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Packer{
+		repo:     repo,
+		odb:      odb,
+		treeSize: make(map[git.Oid]int),
+	}, nil
 }
 
 func (p *Packer) PackTo(w io.Writer, rev, path string) error {
@@ -81,11 +91,12 @@ func (p *Packer) writeEntries(tree *git.Tree, cw *c4group.Writer) error {
 			}
 			c4entry.Size = size
 		case git.ObjectBlob:
-			blob, err := p.repo.LookupBlob(entry.Id)
+			// Avoid reading the whole blob into memory here.
+			s, _, err := p.odb.ReadHeader(entry.Id)
 			if err != nil {
 				return err
 			}
-			c4entry.Size = int(blob.Size())
+			c4entry.Size = int(s)
 			c4entry.Executable = entry.Filemode == git.FilemodeBlobExecutable
 		default:
 			panic("invalid git entry type")
@@ -137,11 +148,6 @@ func (p *Packer) calcTreeSize(entry *git.TreeEntry) (size int, err error) {
 	}
 	size = c4group.HeaderSize
 
-	odb, err := p.repo.Odb()
-	if err != nil {
-		return
-	}
-
 	count := tree.EntryCount()
 	for i := uint64(0); i < count; i++ {
 		entry := tree.EntryByIndex(i)
@@ -161,7 +167,7 @@ func (p *Packer) calcTreeSize(entry *git.TreeEntry) (size int, err error) {
 			size += c4group.EntrySize + s
 		case git.ObjectBlob:
 			// Avoid reading the whole blob into memory here.
-			s, _, err2 := odb.ReadHeader(entry.Id)
+			s, _, err2 := p.odb.ReadHeader(entry.Id)
 			if err2 != nil {
 				err = err2
 				return
