@@ -12,36 +12,14 @@
 // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-package main
+package git2group
 
 import (
-	"fmt"
 	"io"
-	"os"
 
 	"github.com/lluchs/c4group-go"
 	"gopkg.in/libgit2/git2go.v27"
 )
-
-func main() {
-	packer, err := NewPacker("/home/lukas/src/openclonk")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	f, err := os.Create("/tmp/Objects.ocd")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer f.Close()
-	err = packer.PackTo(f, "v8.1", "planet/Objects.ocd")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-}
 
 type Packer struct {
 	repo     *git.Repository
