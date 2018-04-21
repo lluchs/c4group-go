@@ -16,9 +16,10 @@ package git2group
 
 import (
 	"io"
+	"sort"
 
 	"github.com/lluchs/c4group-go"
-	"gopkg.in/libgit2/git2go.v27"
+	"gopkg.in/libgit2/git2go.v26"
 )
 
 type Packer struct {
@@ -70,15 +71,42 @@ func (p *Packer) PackTo(w io.Writer, rev, path string) error {
 	if err != nil {
 		return err
 	}
-	err = p.writeEntries(treeToPack, cw)
+	err = p.writeEntries(entry.Name, treeToPack, cw)
 	return err
 }
 
-func (p *Packer) writeEntries(tree *git.Tree, cw *c4group.Writer) error {
+type entrySlice struct {
+	s    []*git.TreeEntry
+	less func(a, b string) bool
+}
+
+func newEntrySlice(name string, tree *git.Tree) *entrySlice {
 	count := tree.EntryCount()
-	// First pass: write entry headers
+	slice := make([]*git.TreeEntry, count)
 	for i := uint64(0); i < count; i++ {
-		entry := tree.EntryByIndex(i)
+		slice[i] = tree.EntryByIndex(i)
+	}
+	less := c4group.NameLess(name)
+	return &entrySlice{s: slice, less: less}
+}
+
+func (e *entrySlice) Len() int {
+	return len(e.s)
+}
+
+func (e *entrySlice) Less(i int, j int) bool {
+	return e.less(e.s[i].Name, e.s[j].Name)
+}
+
+func (e *entrySlice) Swap(i int, j int) {
+	e.s[i], e.s[j] = e.s[j], e.s[i]
+}
+
+func (p *Packer) writeEntries(name string, tree *git.Tree, cw *c4group.Writer) error {
+	entries := newEntrySlice(name, tree)
+	sort.Sort(entries)
+	// First pass: write entry headers
+	for _, entry := range entries.s {
 		c4entry := c4group.Entry{
 			Filename: entry.Name,
 		}
@@ -107,8 +135,7 @@ func (p *Packer) writeEntries(tree *git.Tree, cw *c4group.Writer) error {
 	}
 
 	// Second pass: write entry contents, including subgroups
-	for i := uint64(0); i < count; i++ {
-		entry := tree.EntryByIndex(i)
+	for _, entry := range entries.s {
 		switch entry.Type {
 		case git.ObjectTree:
 			subtree, err := p.repo.LookupTree(entry.Id)
@@ -121,7 +148,7 @@ func (p *Packer) writeEntries(tree *git.Tree, cw *c4group.Writer) error {
 			if err != nil {
 				return err
 			}
-			err = p.writeEntries(subtree, subgroup)
+			err = p.writeEntries(entry.Name, subtree, subgroup)
 			if err != nil {
 				return err
 			}
