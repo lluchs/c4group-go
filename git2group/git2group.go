@@ -145,6 +145,11 @@ func (p *Packer) calcTreeSize(entry *git.TreeEntry) (size int, err error) {
 	}
 	size = c4group.HeaderSize
 
+	odb, err := p.repo.Odb()
+	if err != nil {
+		return
+	}
+
 	count := tree.EntryCount()
 	for i := uint64(0); i < count; i++ {
 		entry := tree.EntryByIndex(i)
@@ -163,12 +168,13 @@ func (p *Packer) calcTreeSize(entry *git.TreeEntry) (size int, err error) {
 			}
 			size += c4group.EntrySize + s
 		case git.ObjectBlob:
-			blob, err2 := p.repo.LookupBlob(entry.Id)
+			// Avoid reading the whole blob into memory here.
+			s, _, err2 := odb.ReadHeader(entry.Id)
 			if err2 != nil {
 				err = err2
 				return
 			}
-			size += c4group.EntrySize + int(blob.Size())
+			size += c4group.EntrySize + int(s)
 		default:
 			panic("invalid git entry type")
 		}
