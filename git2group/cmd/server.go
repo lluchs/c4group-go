@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -55,6 +56,28 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+	})
+
+	listPathRegexp := regexp.MustCompile(`^/list/([\w\.]+)/(.*)$`)
+	// /list/<revision>/<path>
+	http.HandleFunc("/list/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			http.Error(w, "", http.StatusMethodNotAllowed)
+			return
+		}
+		m := listPathRegexp.FindStringSubmatch(r.URL.Path)
+		if m == nil {
+			http.Error(w, "invalid URL "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		list, err := packer.ListGroups(m[1], m[2])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.Encode(list)
 	})
 
 	log.Fatal(http.ListenAndServe(os.Getenv("PORT"), nil))

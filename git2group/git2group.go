@@ -16,6 +16,7 @@ package git2group
 
 import (
 	"io"
+	"regexp"
 	"sort"
 
 	"github.com/lluchs/c4group-go"
@@ -46,20 +47,7 @@ func NewPacker(repoPath string) (*Packer, error) {
 }
 
 func (p *Packer) PackTo(w io.Writer, rev, path string) error {
-	obj, err := p.repo.RevparseSingle(rev + "^{tree}")
-	if err != nil {
-		return err
-	}
-	tree, err := obj.AsTree()
-	if err != nil {
-		return err
-	}
-
-	entry, err := tree.EntryByPath(path)
-	if err != nil {
-		return err
-	}
-	treeToPack, err := p.repo.LookupTree(entry.Id)
+	entry, treeToPack, err := p.revToTree(rev, path)
 	if err != nil {
 		return err
 	}
@@ -73,6 +61,30 @@ func (p *Packer) PackTo(w io.Writer, rev, path string) error {
 	}
 	err = p.writeEntries(entry.Name, treeToPack, cw)
 	return err
+}
+
+func (p *Packer) revToTree(rev, path string) (*git.TreeEntry, *git.Tree, error) {
+	obj, err := p.repo.RevparseSingle(rev + "^{tree}")
+	if err != nil {
+		return nil, nil, err
+	}
+	rootTree, err := obj.AsTree()
+	if err != nil {
+		return nil, nil, err
+	}
+	if path == "" {
+		return nil, rootTree, nil
+	}
+
+	entry, err := rootTree.EntryByPath(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	tree, err := p.repo.LookupTree(entry.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return entry, tree, nil
 }
 
 type entrySlice struct {
@@ -205,4 +217,33 @@ func (p *Packer) calcTreeSize(entry *git.TreeEntry) (size int, err error) {
 		}
 	}
 	return
+}
+
+type ListGroupsEntry struct {
+	Name string
+	Hash string
+}
+
+var groupRegexp = regexp.MustCompile(`\.oc[dgfs]$`)
+
+func isGroup(name string) bool {
+	return groupRegexp.MatchString(name)
+}
+
+// ListGroups returns a slice of group files (identified by file extension) at
+// the given path.
+func (p *Packer) ListGroups(rev, path string) ([]ListGroupsEntry, error) {
+	_, tree, err := p.revToTree(rev, path)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ListGroupsEntry, 0)
+	count := tree.EntryCount()
+	for i := uint64(0); i < count; i++ {
+		entry := tree.EntryByIndex(i)
+		if isGroup(entry.Name) {
+			result = append(result, ListGroupsEntry{Name: entry.Name, Hash: entry.Id.String()})
+		}
+	}
+	return result, nil
 }
