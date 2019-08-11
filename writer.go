@@ -22,61 +22,6 @@ import (
 	"io"
 )
 
-const (
-	C4GzMagic1      = 0x1e
-	C4GzMagic2      = 0x8c
-	C4GroupFileID   = "RedWolf Design GrpFolder"
-	C4GroupFileVer1 = 1
-	C4GroupFileVer2 = 2
-)
-
-const (
-	HeaderSize = 204 // size of the header in byte
-	EntrySize  = 316 // size of each entry in byte
-)
-
-// Header on-disk format (C4GroupHeader)
-type header struct {
-	id         [24 + 4]byte
-	ver1, ver2 int32
-	entries    int32
-	reserved   [164]byte
-}
-
-// Entry header on-disk format (C4GroupEntryCore)
-type entry struct {
-	filename                [260]byte
-	packed, childGroup      int32
-	size, reserved1, offset int32
-	reserved2               int32
-	reserved3               byte
-	reserved4               uint32
-	executable              byte
-	reserved5               [26]byte
-}
-
-func memScramble(buffer []byte) {
-	for i := range buffer {
-		buffer[i] ^= 237
-	}
-	for i := 0; (i + 2) < len(buffer); i += 3 {
-		buffer[i], buffer[i+2] = buffer[i+2], buffer[i]
-	}
-}
-
-// Header contains the public C4GroupHeader fields.
-type Header struct {
-	Entries int32
-}
-
-// Entry contains the public C4GroupEntryCore fields.
-type Entry struct {
-	Filename   string
-	IsGroup    bool
-	Size       int
-	Executable bool
-}
-
 var (
 	ErrHeaderAlreadyWritten error = errors.New("c4group: header already written")
 	ErrNoHeader             error = errors.New("c4group: initial header missing")
@@ -140,11 +85,11 @@ func (cw *Writer) WriteHeader(hdr *Header) error {
 		return ErrHeaderAlreadyWritten
 	}
 	header := header{
-		ver1:    C4GroupFileVer1,
-		ver2:    C4GroupFileVer2,
-		entries: hdr.Entries,
+		Ver1: C4GroupFileVer1,
+		Ver2: C4GroupFileVer2,
 	}
-	copy(header.id[:], C4GroupFileID)
+	copy(header.ID[:], C4GroupFileID)
+	privateHeader(&header, hdr)
 	var buf bytes.Buffer
 	binary.Write(&buf, binary.LittleEndian, header)
 	memScramble(buf.Bytes())
@@ -156,14 +101,6 @@ func (cw *Writer) WriteHeader(hdr *Header) error {
 	return err
 }
 
-func b2i(b bool) int8 {
-	if b {
-		return 1
-	} else {
-		return 0
-	}
-}
-
 // WriteHeader writes an entry header to the group.
 func (cw *Writer) WriteEntry(e *Entry) error {
 	if !cw.haveHeader {
@@ -173,12 +110,9 @@ func (cw *Writer) WriteEntry(e *Entry) error {
 		return ErrTooManyEntries
 	}
 	entry := entry{
-		childGroup: int32(b2i(e.IsGroup)),
-		size:       int32(e.Size),
-		offset:     cw.offset,
-		executable: byte(b2i(e.Executable)),
+		Offset: cw.offset,
 	}
-	copy(entry.filename[:], e.Filename)
+	privateEntry(&entry, e)
 	cw.offset += int32(e.Size)
 	cw.expectedEntries--
 	err := binary.Write(cw.w, binary.LittleEndian, entry)
