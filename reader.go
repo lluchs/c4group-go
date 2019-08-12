@@ -26,6 +26,8 @@ import (
 var (
 	ErrInvalidMagic  error = errors.New("c4group: invalid magic bytes")
 	ErrInvalidHeader error = errors.New("c4group: header fields (id or version) invalid")
+	ErrNoChildGroup  error = errors.New("c4group: entry is not a child group")
+	ErrAlreadyRead   error = errors.New("c4group: entry has already been read, cannot read child group")
 )
 
 // Reader provides read access to c4group archives.
@@ -84,22 +86,31 @@ func NewReader(r io.Reader) (*Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	cr := &Reader{r: gz, gz: gz, curFile: -1}
-	// Read main header.
-	if err = cr.readHeader(); err != nil {
+	cr := &Reader{r: gz, gz: gz}
+	if err = cr.init(); err != nil {
 		return nil, err
+	}
+	return cr, nil
+}
+
+// init initialized the reader by reading the header structures.
+func (cr *Reader) init() error {
+	cr.curFile = -1
+	// Read main header.
+	if err := cr.readHeader(); err != nil {
+		return err
 	}
 	// Read all entry headers.
 	cr.Entries = make([]Entry, cr.Header.Entries)
 	cr.entries = make([]entry, cr.Header.Entries)
 	for i := int32(0); i < cr.Header.Entries; i++ {
-		err = cr.readEntry(&cr.entries[i])
+		err := cr.readEntry(&cr.entries[i])
 		publicEntry(&cr.Entries[i], &cr.entries[i])
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return cr, nil
+	return nil
 }
 
 // readHeader reads the initial group header.
@@ -156,7 +167,7 @@ func (cr *Reader) Next() (*Entry, error) {
 
 // Read from the current file. Returns io.EOF after finishing.
 func (cr *Reader) Read(b []byte) (int, error) {
-	entry := cr.entries[cr.curFile]
+	entry := &cr.entries[cr.curFile]
 	if cr.offset >= int(entry.Offset+entry.Size) {
 		return 0, io.EOF
 	}
@@ -170,8 +181,25 @@ func (cr *Reader) Read(b []byte) (int, error) {
 	return n, err
 }
 
+// ReadGroup reads a sub group from the archive.
+func (cr *Reader) ReadGroup() (*Reader, error) {
+	entry := &cr.entries[cr.curFile]
+	if entry.ChildGroup == 0 {
+		return nil, ErrNoChildGroup
+	}
+	if int(entry.Offset) != cr.offset {
+		return nil, ErrAlreadyRead
+	}
+	sub := &Reader{r: cr}
+	if err := sub.init(); err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
 // Close closes the Reader.
 func (cr *Reader) Close() error {
+	// Sub group readers don't decompress.
 	if cr.gz != nil {
 		return cr.gz.Close()
 	}
