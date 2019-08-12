@@ -1,0 +1,14 @@
+image: fedora/latest
+packages:
+  - golang
+  - openclonk
+sources:
+  - https://github.com/lluchs/c4group-go
+
+tasks:
+  - build: |
+      cd c4group-go
+      go build
+  - test: |
+      cd c4group-go
+      go test
